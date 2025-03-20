@@ -22,12 +22,13 @@ jobs:
 
       - name: Set Environment from Script
         run: |
-          chmod +x $GITHUB_WORKSPACE/docsum/docker_compose/set_env.sh
-          source $GITHUB_WORKSPACE/docsum/docker_compose/set_env.sh
+          cd docker_compose
+          chmod +x docker_compose/set_env.sh
+          source set_env.sh
 
       - name: Deploy Containers
         run: |
-          cd docsum/docker_compose/intel/cpu/xeon/
+          cd intel/cpu/xeon/
           docker compose -f compose.yaml up -d
 
       - name: Test DocSum API
