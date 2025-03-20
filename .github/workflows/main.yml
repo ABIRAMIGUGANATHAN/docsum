@@ -1,0 +1,84 @@
+name: 🚀 Deploy and Test DocSum Services
+
+on:
+  workflow_dispatch: # Manually triggerable
+
+jobs:
+  deploy-docsum:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set Up Docker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose
+
+      - name: 🛠 Create Environment Variables File
+        run: |
+          echo "LLM_ENDPOINT_PORT=8008" >> .env
+          echo "DOCSUM_PORT=9000" >> .env
+          echo "HUGGINGFACEHUB_API_TOKEN=${{ secrets.HUGGINGFACEHUB_API_TOKEN }}" >> .env
+          echo "LLM_MODEL_ID=your-model-id" >> .env
+          echo "MAX_INPUT_TOKENS=512" >> .env
+          echo "MAX_TOTAL_TOKENS=1024" >> .env
+          echo "REGISTRY=opea" >> .env
+          echo "TAG=latest" >> .env
+          echo "host_ip=localhost" >> .env
+
+      - name: 🚀 Deploy DocSum Containers
+        run: |
+          COMPOSE_PATH="docker_compose/intel/cpu/xeon/compose.yaml"
+          docker compose -f $COMPOSE_PATH down  # Stop existing containers
+          docker compose -f $COMPOSE_PATH up -d
+
+      - name: ⏳ Wait for All Containers to Become Healthy
+        run: |
+          echo "Waiting for all containers to become healthy..."
+          for i in {1..30}; do
+            unhealthy_count=$(docker ps --filter "health=unhealthy" --format "{{.ID}}" | wc -l)
+            exited_count=$(docker ps --filter "status=exited" --format "{{.ID}}" | wc -l)
+            starting_count=$(docker ps --filter "health=starting" --format "{{.ID}}" | wc -l)
+
+            if [[ $unhealthy_count -eq 0 && $exited_count -eq 0 && $starting_count -eq 0 ]]; then
+              echo "All containers are healthy! ✅"
+              break
+            fi
+
+            echo "Waiting... ($i/30)"
+            docker ps -a
+            sleep 10
+          done
+
+          # Final check: If unhealthy/exited containers remain, fail the job
+          if [[ $(docker ps --filter "status=exited" --format "{{.ID}}" | wc -l) -gt 0 ]]; then
+            echo "Some containers have exited ❌"
+            docker ps --filter "status=exited"
+            exit 1
+          fi
+
+      - name: 🔍 Debug Logs for Failed Containers
+        if: failure()
+        run: |
+          echo "Fetching logs for exited containers..."
+          docker ps --filter "status=exited" --format "{{.Names}}" | xargs -I {} sh -c 'echo "Logs for {}:" && docker logs {}'
+
+      - name: 📝 Test DocSum API
+        run: |
+          echo "Testing API endpoint..."
+          RESPONSE=$(curl -s -X POST http://localhost:8888/v1/docsum \
+            -H "Content-Type: application/json" \
+            -d '{"type": "text", "messages": "Text Embeddings Inference (TEI) is a toolkit for deploying and serving open source text embeddings and sequence classification models. TEI enables high-performance extraction for the most popular models, including FlagEmbedding, Ember, GTE and E5."}')
+          echo "DocSum API Response: $RESPONSE"
+
+          # Fail if API response is invalid
+          if [[ "$RESPONSE" == *"Internal Server Error"* || -z "$RESPONSE" ]]; then
+            echo "API test failed ❌"
+            exit 1
+          fi
+          echo "API test successful ✅"
+
+      - name: ✅ Deployment Completed
+        run: echo "DocSum deployment successful! 🎉"
