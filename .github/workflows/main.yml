@@ -23,7 +23,7 @@ jobs:
       - name: Set Environment from Script
         run: |
           cd docker_compose
-          chmod +x docker_compose/set_env.sh
+          chmod +x set_env.sh
           source set_env.sh
 
       - name: Deploy Containers
